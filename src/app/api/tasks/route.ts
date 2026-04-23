@@ -1,9 +1,18 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getAllTasks, addTask, updateTask, deleteTask } from '@/lib/sheets';
+import { getAllTasks, addTask, updateTask, deleteTask, buildProjectTree } from '@/lib/sheets';
 
-export async function GET() {
+export async function GET(req: NextRequest) {
   try {
+    const { searchParams } = new URL(req.url);
+    const format = searchParams.get('format');
+
     const tasks = await getAllTasks();
+
+    if (format === 'tree') {
+      const projects = buildProjectTree(tasks);
+      return NextResponse.json({ projects });
+    }
+
     return NextResponse.json({ tasks });
   } catch (error: any) {
     console.error('GET /api/tasks error:', error);

@@ -1,42 +1,57 @@
 'use client';
 
-import type { Task } from '@/lib/sheets';
+import type { Task, Project } from '@/lib/sheets';
 
 interface StatsBarProps {
   tasks: Task[];
+  projects: Project[];
 }
 
-export function StatsBar({ tasks }: StatsBarProps) {
-  const total = tasks.length;
-  const todo = tasks.filter((t) => t.status === 'todo').length;
-  const inProgress = tasks.filter((t) => t.status === 'in_progress').length;
-  const inReview = tasks.filter((t) => t.status === 'in_review').length;
-  const done = tasks.filter((t) => t.status === 'done').length;
-  const blocked = tasks.filter((t) => t.status === 'blocked').length;
+export function StatsBar({ tasks, projects }: StatsBarProps) {
+  const totalProjects = projects.length;
+  const totalSubtasks = tasks.filter((t) => t.type === 'task').length;
+  const doneSubs = tasks.filter((t) => t.type === 'task' && t.status === 'done').length;
+  const inProgressSubs = tasks.filter((t) => t.type === 'task' && t.status === 'in_progress').length;
+  const blockedSubs = tasks.filter((t) => t.type === 'task' && t.status === 'blocked').length;
+  const doneProjects = projects.filter((p) => p.status === 'done').length;
 
-  const overdue = tasks.filter((t) => {
-    if (!t.dueDate || t.status === 'done') return false;
-    return new Date(t.dueDate) < new Date();
-  }).length;
+  const overallProgress = totalSubtasks > 0 ? Math.round((doneSubs / totalSubtasks) * 100) : 0;
 
   const stats = [
-    { label: 'Total', value: total, color: 'text-[var(--text-primary)]', bg: 'bg-[var(--bg-card)]' },
-    { label: 'Todo', value: todo, color: 'text-gray-400', bg: 'bg-gray-800/50' },
-    { label: 'In Progress', value: inProgress, color: 'text-blue-400', bg: 'bg-blue-900/30' },
-    { label: 'In Review', value: inReview, color: 'text-purple-400', bg: 'bg-purple-900/30' },
-    { label: 'Done', value: done, color: 'text-green-400', bg: 'bg-green-900/30' },
-    { label: 'Blocked', value: blocked, color: 'text-orange-400', bg: 'bg-orange-900/30' },
-    { label: 'Overdue', value: overdue, color: 'text-red-400', bg: 'bg-red-900/30' },
+    { label: 'Projects', value: totalProjects, sub: `${doneProjects} done`, color: 'text-[var(--text-primary)]' },
+    { label: 'Total Tasks', value: totalSubtasks, sub: '', color: 'text-[var(--text-primary)]' },
+    { label: 'Completed', value: doneSubs, sub: `${overallProgress}%`, color: 'text-green-400' },
+    { label: 'In Progress', value: inProgressSubs, sub: '', color: 'text-blue-400' },
+    { label: 'Blocked', value: blockedSubs, sub: '', color: 'text-orange-400' },
   ];
 
   return (
-    <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-3 mb-6">
-      {stats.map((s) => (
-        <div key={s.label} className={`${s.bg} border border-[var(--border)] rounded-lg p-3`}>
-          <div className={`text-2xl font-bold ${s.color}`}>{s.value}</div>
-          <div className="text-xs text-[var(--text-secondary)] mt-1">{s.label}</div>
+    <div className="mb-6">
+      <div className="grid grid-cols-2 sm:grid-cols-5 gap-3 mb-3">
+        {stats.map((s) => (
+          <div key={s.label} className="bg-[var(--bg-card)] border border-[var(--border)] rounded-lg p-3">
+            <div className={`text-2xl font-bold ${s.color}`}>{s.value}</div>
+            <div className="flex items-center gap-2">
+              <span className="text-xs text-[var(--text-secondary)]">{s.label}</span>
+              {s.sub && <span className="text-[10px] text-[var(--text-secondary)] opacity-70">{s.sub}</span>}
+            </div>
+          </div>
+        ))}
+      </div>
+
+      {/* Overall progress bar */}
+      {totalSubtasks > 0 && (
+        <div className="flex items-center gap-3">
+          <span className="text-xs text-[var(--text-secondary)]">Overall</span>
+          <div className="flex-1 h-2 bg-[var(--bg-secondary)] rounded-full overflow-hidden">
+            <div
+              className={`h-full rounded-full transition-all duration-500 ${overallProgress === 100 ? 'bg-green-500' : 'bg-indigo-500'}`}
+              style={{ width: `${overallProgress}%` }}
+            />
+          </div>
+          <span className="text-xs text-[var(--text-secondary)] font-medium">{overallProgress}%</span>
         </div>
-      ))}
+      )}
     </div>
   );
 }

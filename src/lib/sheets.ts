@@ -4,7 +4,7 @@ const SPREADSHEET_ID = process.env.GOOGLE_SHEETS_SPREADSHEET_ID!;
 const SHEET_NAME = process.env.GOOGLE_SHEETS_SHEET_NAME || 'Sheet1';
 
 const HEADERS = [
-  'ID', 'Title', 'Description', 'Status', 'Priority',
+  'ID', 'Parent ID', 'Type', 'Title', 'Description', 'Status', 'Priority',
   'Assignee', 'Due Date', 'Tags', 'Created At', 'Updated At'
 ];
 
@@ -22,12 +22,18 @@ function getSheets() {
   return google.sheets({ version: 'v4', auth: getAuth() });
 }
 
+export type TaskStatus = 'todo' | 'in_progress' | 'in_review' | 'done' | 'blocked';
+export type TaskPriority = 'low' | 'medium' | 'high' | 'critical';
+export type TaskType = 'project' | 'task';
+
 export interface Task {
   id: string;
+  parentId: string;      // empty for projects, project ID for subtasks
+  type: TaskType;         // 'project' or 'task'
   title: string;
   description: string;
-  status: 'todo' | 'in_progress' | 'in_review' | 'done' | 'blocked';
-  priority: 'low' | 'medium' | 'high' | 'critical';
+  status: TaskStatus;
+  priority: TaskPriority;
   assignee: string;
   dueDate: string;
   tags: string;
@@ -35,25 +41,27 @@ export interface Task {
   updatedAt: string;
 }
 
+export interface Project extends Task {
+  type: 'project';
+  subtasks: Task[];
+}
+
 export async function ensureHeaders(): Promise<void> {
   const sheets = getSheets();
   const res = await sheets.spreadsheets.values.get({
     spreadsheetId: SPREADSHEET_ID,
-    range: `${SHEET_NAME}!A1:J1`,
+    range: `${SHEET_NAME}!A1:L1`,
   });
 
-  if (!res.data.values || res.data.values.length === 0) {
+  if (!res.data.values || res.data.values.length === 0 || res.data.values[0][0] !== 'ID') {
     await sheets.spreadsheets.values.update({
       spreadsheetId: SPREADSHEET_ID,
-      range: `${SHEET_NAME}!A1:J1`,
+      range: `${SHEET_NAME}!A1:L1`,
       valueInputOption: 'RAW',
       requestBody: { values: [HEADERS] },
     });
 
-    // Format header row (bold + freeze)
-    const spreadsheet = await sheets.spreadsheets.get({
-      spreadsheetId: SPREADSHEET_ID,
-    });
+    const spreadsheet = await sheets.spreadsheets.get({ spreadsheetId: SPREADSHEET_ID });
     const sheetId = spreadsheet.data.sheets?.[0]?.properties?.sheetId || 0;
 
     await sheets.spreadsheets.batchUpdate({
@@ -66,7 +74,7 @@ export async function ensureHeaders(): Promise<void> {
               cell: {
                 userEnteredFormat: {
                   textFormat: { bold: true },
-                  backgroundColor: { red: 0.2, green: 0.2, blue: 0.3 },
+                  backgroundColor: { red: 0.15, green: 0.15, blue: 0.2 },
                 },
               },
               fields: 'userEnteredFormat(textFormat,backgroundColor)',
@@ -87,22 +95,25 @@ export async function ensureHeaders(): Promise<void> {
 function rowToTask(row: string[]): Task {
   return {
     id: row[0] || '',
-    title: row[1] || '',
-    description: row[2] || '',
-    status: (row[3] as Task['status']) || 'todo',
-    priority: (row[4] as Task['priority']) || 'medium',
-    assignee: row[5] || '',
-    dueDate: row[6] || '',
-    tags: row[7] || '',
-    createdAt: row[8] || '',
-    updatedAt: row[9] || '',
+    parentId: row[1] || '',
+    type: (row[2] as TaskType) || 'task',
+    title: row[3] || '',
+    description: row[4] || '',
+    status: (row[5] as TaskStatus) || 'todo',
+    priority: (row[6] as TaskPriority) || 'medium',
+    assignee: row[7] || '',
+    dueDate: row[8] || '',
+    tags: row[9] || '',
+    createdAt: row[10] || '',
+    updatedAt: row[11] || '',
   };
 }
 
 function taskToRow(task: Task): string[] {
   return [
-    task.id, task.title, task.description, task.status, task.priority,
-    task.assignee, task.dueDate, task.tags, task.createdAt, task.updatedAt,
+    task.id, task.parentId, task.type, task.title, task.description,
+    task.status, task.priority, task.assignee, task.dueDate, task.tags,
+    task.createdAt, task.updatedAt,
   ];
 }
 
@@ -111,29 +122,35 @@ export async function getAllTasks(): Promise<Task[]> {
   const sheets = getSheets();
   const res = await sheets.spreadsheets.values.get({
     spreadsheetId: SPREADSHEET_ID,
-    range: `${SHEET_NAME}!A2:J1000`,
+    range: `${SHEET_NAME}!A2:L5000`,
   });
 
   if (!res.data.values) return [];
-  return res.data.values.map(rowToTask);
+  return res.data.values.filter((row) => row[0]).map(rowToTask);
+}
+
+export function buildProjectTree(tasks: Task[]): Project[] {
+  const projects = tasks.filter((t) => t.type === 'project') as Project[];
+  const subtasks = tasks.filter((t) => t.type === 'task');
+
+  return projects.map((p) => ({
+    ...p,
+    subtasks: subtasks.filter((t) => t.parentId === p.id),
+  }));
 }
 
 export async function addTask(task: Omit<Task, 'id' | 'createdAt' | 'updatedAt'>): Promise<Task> {
   await ensureHeaders();
   const sheets = getSheets();
   const now = new Date().toISOString();
-  const id = `T-${Date.now()}`;
+  const prefix = task.type === 'project' ? 'P' : 'ST';
+  const id = `${prefix}-${Date.now()}`;
 
-  const newTask: Task = {
-    ...task,
-    id,
-    createdAt: now,
-    updatedAt: now,
-  };
+  const newTask: Task = { ...task, id, createdAt: now, updatedAt: now };
 
   await sheets.spreadsheets.values.append({
     spreadsheetId: SPREADSHEET_ID,
-    range: `${SHEET_NAME}!A:J`,
+    range: `${SHEET_NAME}!A:L`,
     valueInputOption: 'RAW',
     requestBody: { values: [taskToRow(newTask)] },
   });
@@ -141,12 +158,26 @@ export async function addTask(task: Omit<Task, 'id' | 'createdAt' | 'updatedAt'>
   return newTask;
 }
 
+export async function addBulk(items: Task[]): Promise<Task[]> {
+  await ensureHeaders();
+  const sheets = getSheets();
+
+  await sheets.spreadsheets.values.append({
+    spreadsheetId: SPREADSHEET_ID,
+    range: `${SHEET_NAME}!A:L`,
+    valueInputOption: 'RAW',
+    requestBody: { values: items.map(taskToRow) },
+  });
+
+  return items;
+}
+
 export async function updateTask(id: string, updates: Partial<Task>): Promise<Task | null> {
   await ensureHeaders();
   const sheets = getSheets();
   const res = await sheets.spreadsheets.values.get({
     spreadsheetId: SPREADSHEET_ID,
-    range: `${SHEET_NAME}!A2:J1000`,
+    range: `${SHEET_NAME}!A2:L5000`,
   });
 
   if (!res.data.values) return null;
@@ -159,14 +190,16 @@ export async function updateTask(id: string, updates: Partial<Task>): Promise<Ta
     ...existing,
     ...updates,
     id: existing.id,
+    parentId: existing.parentId,
+    type: existing.type,
     createdAt: existing.createdAt,
     updatedAt: new Date().toISOString(),
   };
 
-  const sheetRow = rowIndex + 2; // +1 for header, +1 for 1-indexed
+  const sheetRow = rowIndex + 2;
   await sheets.spreadsheets.values.update({
     spreadsheetId: SPREADSHEET_ID,
-    range: `${SHEET_NAME}!A${sheetRow}:J${sheetRow}`,
+    range: `${SHEET_NAME}!A${sheetRow}:L${sheetRow}`,
     valueInputOption: 'RAW',
     requestBody: { values: [taskToRow(updated)] },
   });
@@ -179,36 +212,70 @@ export async function deleteTask(id: string): Promise<boolean> {
   const sheets = getSheets();
   const res = await sheets.spreadsheets.values.get({
     spreadsheetId: SPREADSHEET_ID,
-    range: `${SHEET_NAME}!A2:J1000`,
+    range: `${SHEET_NAME}!A2:L5000`,
   });
 
   if (!res.data.values) return false;
 
-  const rowIndex = res.data.values.findIndex((row) => row[0] === id);
-  if (rowIndex === -1) return false;
-
-  const spreadsheet = await sheets.spreadsheets.get({
-    spreadsheetId: SPREADSHEET_ID,
+  // Find all rows to delete: the task itself + any subtasks if it's a project
+  const rowsToDelete: number[] = [];
+  res.data.values.forEach((row, index) => {
+    if (row[0] === id || row[1] === id) {
+      rowsToDelete.push(index);
+    }
   });
+
+  if (rowsToDelete.length === 0) return false;
+
+  const spreadsheet = await sheets.spreadsheets.get({ spreadsheetId: SPREADSHEET_ID });
+  const sheetId = spreadsheet.data.sheets?.[0]?.properties?.sheetId || 0;
+
+  // Delete from bottom to top to preserve row indices
+  const requests = rowsToDelete.reverse().map((rowIndex) => ({
+    deleteDimension: {
+      range: {
+        sheetId,
+        dimension: 'ROWS' as const,
+        startIndex: rowIndex + 1,
+        endIndex: rowIndex + 2,
+      },
+    },
+  }));
+
+  await sheets.spreadsheets.batchUpdate({
+    spreadsheetId: SPREADSHEET_ID,
+    requestBody: { requests },
+  });
+
+  return true;
+}
+
+export async function clearAllTasks(): Promise<void> {
+  await ensureHeaders();
+  const sheets = getSheets();
+  const res = await sheets.spreadsheets.values.get({
+    spreadsheetId: SPREADSHEET_ID,
+    range: `${SHEET_NAME}!A2:L5000`,
+  });
+
+  if (!res.data.values || res.data.values.length === 0) return;
+
+  const spreadsheet = await sheets.spreadsheets.get({ spreadsheetId: SPREADSHEET_ID });
   const sheetId = spreadsheet.data.sheets?.[0]?.properties?.sheetId || 0;
 
   await sheets.spreadsheets.batchUpdate({
     spreadsheetId: SPREADSHEET_ID,
     requestBody: {
-      requests: [
-        {
-          deleteDimension: {
-            range: {
-              sheetId,
-              dimension: 'ROWS',
-              startIndex: rowIndex + 1, // +1 for header
-              endIndex: rowIndex + 2,
-            },
+      requests: [{
+        deleteDimension: {
+          range: {
+            sheetId,
+            dimension: 'ROWS',
+            startIndex: 1,
+            endIndex: res.data.values.length + 1,
           },
         },
-      ],
+      }],
     },
   });
-
-  return true;
 }

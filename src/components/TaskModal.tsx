@@ -1,15 +1,18 @@
 'use client';
 
 import { useState } from 'react';
-import type { Task } from '@/lib/sheets';
+import type { Task, Project } from '@/lib/sheets';
 
 interface TaskModalProps {
   task: Task | null;
+  type: 'project' | 'task';
+  parentId: string;
+  projects: Project[];
   onSave: (task: Partial<Task>) => void;
   onClose: () => void;
 }
 
-export function TaskModal({ task, onSave, onClose }: TaskModalProps) {
+export function TaskModal({ task, type, parentId, projects, onSave, onClose }: TaskModalProps) {
   const [title, setTitle] = useState(task?.title || '');
   const [description, setDescription] = useState(task?.description || '');
   const [status, setStatus] = useState<string>(task?.status || 'todo');
@@ -18,6 +21,10 @@ export function TaskModal({ task, onSave, onClose }: TaskModalProps) {
   const [dueDate, setDueDate] = useState(task?.dueDate || '');
   const [tags, setTags] = useState(task?.tags || '');
   const [saving, setSaving] = useState(false);
+
+  const isEditing = !!task;
+  const isProject = isEditing ? task.type === 'project' : type === 'project';
+  const parentProject = parentId ? projects.find((p) => p.id === parentId) : null;
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -34,7 +41,16 @@ export function TaskModal({ task, onSave, onClose }: TaskModalProps) {
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-center justify-between px-6 py-4 border-b border-[var(--border)]">
-          <h2 className="text-lg font-semibold">{task ? 'Edit Task' : 'New Task'}</h2>
+          <div>
+            <h2 className="text-lg font-semibold">
+              {isEditing ? 'Edit' : 'New'} {isProject ? 'Project' : 'Subtask'}
+            </h2>
+            {parentProject && (
+              <p className="text-xs text-[var(--text-secondary)] mt-0.5">
+                Under: {parentProject.title}
+              </p>
+            )}
+          </div>
           <button onClick={onClose} className="text-[var(--text-secondary)] hover:text-[var(--text-primary)]">
             <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
@@ -45,7 +61,9 @@ export function TaskModal({ task, onSave, onClose }: TaskModalProps) {
         <form onSubmit={handleSubmit} className="p-6 space-y-4">
           {/* Title */}
           <div>
-            <label className="block text-sm font-medium text-[var(--text-secondary)] mb-1">Title *</label>
+            <label className="block text-sm font-medium text-[var(--text-secondary)] mb-1">
+              {isProject ? 'Project Name' : 'Subtask'} *
+            </label>
             <input
               type="text"
               value={title}
@@ -53,7 +71,7 @@ export function TaskModal({ task, onSave, onClose }: TaskModalProps) {
               required
               autoFocus
               className="w-full px-3 py-2 bg-[var(--bg-secondary)] border border-[var(--border)] rounded-lg text-sm text-[var(--text-primary)] focus:outline-none focus:border-indigo-500"
-              placeholder="What needs to be done?"
+              placeholder={isProject ? 'Project name...' : 'What needs to be done?'}
             />
           </div>
 
@@ -63,7 +81,7 @@ export function TaskModal({ task, onSave, onClose }: TaskModalProps) {
             <textarea
               value={description}
               onChange={(e) => setDescription(e.target.value)}
-              rows={3}
+              rows={2}
               className="w-full px-3 py-2 bg-[var(--bg-secondary)] border border-[var(--border)] rounded-lg text-sm text-[var(--text-primary)] focus:outline-none focus:border-indigo-500 resize-none"
               placeholder="Add details..."
             />
@@ -131,7 +149,7 @@ export function TaskModal({ task, onSave, onClose }: TaskModalProps) {
               value={tags}
               onChange={(e) => setTags(e.target.value)}
               className="w-full px-3 py-2 bg-[var(--bg-secondary)] border border-[var(--border)] rounded-lg text-sm text-[var(--text-primary)] focus:outline-none focus:border-indigo-500"
-              placeholder="Comma-separated: frontend, bug, urgent"
+              placeholder="Comma-separated: hardware, vendor, urgent"
             />
           </div>
 
@@ -149,7 +167,7 @@ export function TaskModal({ task, onSave, onClose }: TaskModalProps) {
               disabled={saving || !title.trim()}
               className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white rounded-lg text-sm font-medium transition-colors"
             >
-              {saving ? 'Saving...' : task ? 'Update Task' : 'Create Task'}
+              {saving ? 'Saving...' : isEditing ? 'Update' : `Create ${isProject ? 'Project' : 'Subtask'}`}
             </button>
           </div>
         </form>
